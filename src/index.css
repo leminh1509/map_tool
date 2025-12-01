@@ -1,0 +1,78 @@
+/* src/index.css */
+@import 'leaflet/dist/leaflet.css';
+
+/* Đảm bảo map-container chiếm đủ không gian */
+.map-container {
+  /* Giữ lại các style này */
+  flex-grow: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* Thêm style cho search control của leaflet */
+.leaflet-control-geocoder {
+    margin: 10px;
+    z-index: 1000; /* Đảm bảo nó nổi trên bản đồ */
+}
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.map-container {
+  flex-grow: 1; /* Bản đồ chiếm phần lớn không gian */
+  width: 100%;
+  height: 100%;
+}
+
+/* Style cho bảng thông tin */
+.info-panel {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  padding: 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 10; /* Đảm bảo nó nổi lên trên bản đồ */
+  min-width: 300px;
+  text-align: center;
+}
+
+.data-value {
+  font-weight: bold;
+  color: #2563eb;
+}
+
+/* Style cho thanh tìm kiếm */
+.search-control-container {
+  margin: 10px;
+}
+
+.search-input {
+  width: 300px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  font-size: 16px;
+  outline: none;
+}
