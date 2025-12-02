@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMapEvents } from 'react-leaflet';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, CircleMarker } from 'react-leaflet';
+import L from 'leaflet';
+import pinIconUrl from './assets/pin.png';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -47,8 +49,10 @@ function interpolatePoints(start, end, numPoints = 50) {
 }
 
 // Component biểu đồ mặt cắt độ cao
-function ElevationChart({ data, distance }) {
+function ElevationChart({ data, distance, onPointClick }) {
   if (!data || data.length === 0) return null;
+
+  const chartRef = useRef(null);
 
   const distances = data.map((_, index) => (distance * index / (data.length - 1)).toFixed(0));
 
@@ -63,6 +67,8 @@ function ElevationChart({ data, distance }) {
         fill: true,
         tension: 0.3,
         pointRadius: 0,
+        pointHitRadius: 8,
+        pointHoverRadius: 6,
         borderWidth: 2,
       },
     ],
@@ -119,9 +125,34 @@ function ElevationChart({ data, distance }) {
     }
   };
 
+  const handleChartClick = useCallback((event) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    // Allow click selection even when points are hidden by using nearest mode without intersection
+    const elements = chart.getElementsAtEventForMode(
+      event.native ?? event,
+      'nearest',
+      { intersect: false },
+      true
+    );
+
+    if (elements && elements.length > 0) {
+      const idx = elements[0].index;
+      if (typeof idx === 'number') {
+        onPointClick?.(idx);
+      }
+    }
+  }, [onPointClick]);
+
   return (
     <div style={{height: '100%', width: '100%'}}>
-      <Line options={options} data={chartData} />
+      <Line 
+        options={options} 
+        data={chartData} 
+        ref={chartRef}
+        onClick={handleChartClick}
+      />
     </div>
   );
 }
@@ -172,7 +203,17 @@ function App() {
   const [searchError, setSearchError] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
+  const [showEsriLabels, setShowEsriLabels] = useState(true);
+  const [profileCoords, setProfileCoords] = useState([]);
+  const [selectedProfileIndex, setSelectedProfileIndex] = useState(null);
   const mapRef = useRef(null);
+  const pinIcon = useMemo(() => L.icon({
+    iconUrl: pinIconUrl,
+    iconSize: [32, 44], // scale the 192x262 asset down to a reasonable marker size
+    iconAnchor: [16, 44],
+    popupAnchor: [0, -38],
+    tooltipAnchor: [0, -38]
+  }), []);
 
   useEffect(() => {
     const trimmed = searchQuery.trim();
@@ -281,6 +322,8 @@ function App() {
     setStatusText("⏳ Đang tính toán độ cao...");
 
     const interpolated = interpolatePoints(path[0], path[1], 50);
+    setProfileCoords(interpolated);
+    setSelectedProfileIndex(null);
     
     const locations = interpolated.map(p => ({
       latitude: p.lat,
@@ -311,21 +354,32 @@ function App() {
       } else {
         setStatusText("❌ Lỗi khi lấy dữ liệu độ cao.");
         setElevationProfile([]);
+        setProfileCoords([]);
+        setSelectedProfileIndex(null);
       }
     } catch (error) {
       setStatusText("❌ Lỗi kết nối API.");
       setElevationProfile([]);
+      setProfileCoords([]);
+      setSelectedProfileIndex(null);
       console.error("Fetch error:", error);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const handleProfilePointClick = useCallback((idx) => {
+    if (!profileCoords[idx]) return;
+    setSelectedProfileIndex(idx);
+  }, [profileCoords]);
+
   const handleReset = () => {
     setPoints([]);
     setElevationProfile([]);
     setDistance(0);
     setStatusText("📍 Đã xóa. Nhấp chuột để chọn điểm A mới.");
+    setProfileCoords([]);
+    setSelectedProfileIndex(null);
   };
 
   return (
@@ -347,10 +401,26 @@ function App() {
           style={{ height: '100%', width: '100%' }}
           whenCreated={(map) => { mapRef.current = map; }}
         >
+          {/* Ảnh vệ tinh Esri */}
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
           />
+          {/* Lớp phủ nhãn Esri có thể bật/tắt */}
+          {showEsriLabels && (
+            // <TileLayer
+            //   attribution='Labels &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            //   url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
+            //   pane="overlayPane"
+            //   opacity={0.4}
+            // />
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              pane="overlayPane"
+              opacity={0.7}
+/>
+          )}
 
           <MapClickHandler 
             setPoints={setPoints} 
@@ -362,18 +432,27 @@ function App() {
           />
 
           {searchMarker && (
-            <Marker position={[searchMarker.lat, searchMarker.lng]} />
+            <Marker position={[searchMarker.lat, searchMarker.lng]} icon={pinIcon} />
           )}
 
           {points.map((p, idx) => (
             <Marker 
               key={idx} 
               position={p}
+              icon={pinIcon}
             />
           ))}
 
           {points.length === 2 && (
             <Polyline positions={points} color="#ff4444" weight={3} opacity={0.8} />
+          )}
+
+          {selectedProfileIndex !== null && profileCoords[selectedProfileIndex] && (
+            <CircleMarker
+              center={[profileCoords[selectedProfileIndex].lat, profileCoords[selectedProfileIndex].lng]}
+              radius={8}
+              pathOptions={{ color: '#1e88e5', fillColor: '#1e88e5', fillOpacity: 0.85, weight: 2 }}
+            />
           )}
         </MapContainer>
       </div>
@@ -555,6 +634,55 @@ function App() {
           </p>
         </div>
 
+        {/* Điều khiển lớp nền */}
+        <div style={{
+          padding: '30px 40px',
+          background: 'white',
+          borderBottom: '2px solid #e0e0e0'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px'
+          }}>
+            <div>
+              <div style={{ fontSize: '18px', fontWeight: '700', color: '#333' }}>
+                Lớp nhãn Esri
+              </div>
+              <div style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>
+                Bật hoặc tắt lớp nhãn đường phố phủ trên ảnh vệ tinh.
+              </div>
+            </div>
+            <button
+              onClick={() => setShowEsriLabels((prev) => !prev)}
+              style={{
+                padding: '12px 18px',
+                minWidth: '170px',
+                background: showEsriLabels ? '#43a047' : '#9e9e9e',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '16px',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.12)',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 6px 12px rgba(0,0,0,0.2)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 10px rgba(0,0,0,0.12)';
+              }}
+            >
+              {showEsriLabels ? 'Tắt lớp nhãn' : 'Bật lớp nhãn'}
+            </button>
+          </div>
+        </div>
+
         {/* Trạng thái */}
         <div style={{
           padding: '45px 40px',
@@ -640,7 +768,11 @@ function App() {
               📊 Biểu đồ mặt cắt địa hình
             </h3>
             <div style={{ flex: 1, minHeight: '300px' }}>
-              <ElevationChart data={elevationProfile} distance={distance} />
+              <ElevationChart 
+                data={elevationProfile} 
+                distance={distance} 
+                onPointClick={handleProfilePointClick}
+              />
             </div>
           </div>
         )}
